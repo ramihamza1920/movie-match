@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function isAdmin() { return signedIn() && me().role == 'admin'; }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+
+      // Inscription : un utilisateur crée uniquement SON profil, rôle "user", actif
+      allow create: if signedIn()
+                    && request.auth.uid == uid
+                    && request.resource.data.role == 'user'
+                    && request.resource.data.active == true;
+
+      // Un utilisateur actif modifie son profil (favoris...) sans changer role / active.
+      // L'admin peut tout modifier (activation / désactivation).
+      allow update: if (signedIn()
+                        && request.auth.uid == uid
+                        && me().active == true
+                        && request.resource.data.role == resource.data.role
+                        && request.resource.data.active == resource.data.active)
+                    || isAdmin();
+
+      // Jamais de suppression : on désactive seulement
+      allow delete: if false;
+    }
+
+    match /movies/{movieId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+  }
+}
